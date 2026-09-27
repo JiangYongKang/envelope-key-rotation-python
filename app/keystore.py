@@ -115,3 +115,8 @@ class KeyStore:
                     ErrorReason.NO_ACTIVE_KEY, "没有处于 ACTIVE 状态的主密钥版本"
                 )
             return max(active, key=lambda kv: kv.version)
+
+    def snapshot(self) -> list[KeyVersion]:
+        """返回按版本号排序的只读快照。"""
+        with self._lock:
+            return [self._versions[v] for v in sorted(self._versions)]
