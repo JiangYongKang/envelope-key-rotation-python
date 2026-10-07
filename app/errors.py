@@ -16,7 +16,14 @@ class ErrorCode(str, Enum):
     CIPHERTEXT_TAMPERED = "CIPHERTEXT_TAMPERED"      # 完整性校验失败（密文被篡改）
     VERSION_MISMATCH = "VERSION_MISMATCH"            # 密文关联的版本与预期不符
     MALFORMED_ENVELOPE = "MALFORMED_ENVELOPE"        # 信封结构损坏
+    # 退役与生命周期终态
+    VERSION_NOT_DISABLED = "VERSION_NOT_DISABLED"    # 未停用就尝试退役
+    VERSION_IN_USE = "VERSION_IN_USE"                # 仍有历史密文引用，拒绝退役
+    VERSION_RETIRED = "VERSION_RETIRED"              # 版本已退役（终态）
+    # 批量重加密类
+    RECORD_NOT_FOUND = "RECORD_NOT_FOUND"            # 重加密记录不存在
     # 权限类
+    UNAUTHENTICATED = "UNAUTHENTICATED"              # 调用方身份未被服务端识别
     PERMISSION_DENIED = "PERMISSION_DENIED"          # 越权调用
 
 

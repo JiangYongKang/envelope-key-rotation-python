@@ -1,8 +1,8 @@
-"""密钥版本管理：登记、启用、轮换、停用，线程安全。
+"""密钥版本管理：登记、启用、轮换、停用、退役，线程安全。
 
-状态机：PENDING --activate--> ACTIVE --deactivate/rotate--> DISABLED
-所有状态变更都在同一把可重入锁内完成，加密方可以通过 `lock`
-持锁读取当前生效版本，保证不会用到正在停用的版本。
+状态机：PENDING --activate--> ACTIVE --deactivate/rotate--> DISABLED --retire--> RETIRED
+RETIRED 是终态：不可再启用、不可解密。所有状态变更都在同一把可重入锁内完成，
+加密方可以通过 `lock` 持锁读取当前生效版本，保证不会用到正在停用的版本。
 """
 
 from __future__ import annotations
@@ -46,6 +46,11 @@ class KeyRing:
         """启用某个已登记版本为当前主密钥版本。"""
         with self._lock:
             key = self._require(version)
+            if key.state is KeyState.RETIRED:
+                raise KeyManagementError(
+                    ErrorCode.VERSION_RETIRED,
+                    f"版本 {version} 已退役（终态），不能再启用",
+                )
             if key.state is KeyState.DISABLED:
                 raise KeyManagementError(
                     ErrorCode.VERSION_NOT_ACTIVE, f"版本 {version} 已停用，不能重新启用"
@@ -70,6 +75,11 @@ class KeyRing:
         """停用版本；停用后不可再用于加密，也不可重复停用。"""
         with self._lock:
             key = self._require(version)
+            if key.state is KeyState.RETIRED:
+                raise KeyManagementError(
+                    ErrorCode.VERSION_RETIRED,
+                    f"版本 {version} 已退役（终态），不能再停用",
+                )
             if key.state is KeyState.DISABLED:
                 raise KeyManagementError(
                     ErrorCode.VERSION_NOT_ACTIVE, f"版本 {version} 已停用，不能重复停用"
@@ -78,6 +88,56 @@ class KeyRing:
             if self._active == version:
                 self._active = None
             return key
+
+    def retire(self, version: int) -> KeyVersion:
+        """退役版本（终态）。只有已停用的版本才允许退役；
+        "是否仍有历史密文引用"由调用方在持锁状态下先行判定。"""
+        with self._lock:
+            key = self._require(version)
+            if key.state is KeyState.RETIRED:
+                raise KeyManagementError(
+                    ErrorCode.VERSION_RETIRED, f"版本 {version} 已退役，不能重复退役"
+                )
+            if key.state is not KeyState.DISABLED:
+                raise KeyManagementError(
+                    ErrorCode.VERSION_NOT_DISABLED,
+                    f"版本 {version} 状态为 {key.state.value}，只有已停用版本才能退役",
+                )
+            key.state = KeyState.RETIRED
+            return key
+
+    def record_encrypt(self, version: int) -> None:
+        """记录一次加密使用（更新统计与最后使用时间）。"""
+        self._record_usage(version, encrypt=True)
+
+    def record_decrypt(self, version: int) -> None:
+        """记录一次解密使用（更新统计与最后使用时间）。"""
+        self._record_usage(version, encrypt=False)
+
+    def _record_usage(self, version: int, encrypt: bool) -> None:
+        import time
+
+        with self._lock:
+            key = self._versions.get(version)
+            if key is None:
+                return
+            if encrypt:
+                key.encrypt_count += 1
+            else:
+                key.decrypt_count += 1
+            key.last_used_at = time.time()
+
+    def stats(self, version: int) -> dict:
+        """按版本查看使用统计：加密次数、解密次数、最后使用时间。"""
+        with self._lock:
+            key = self._require(version)
+            return {
+                "version": key.version,
+                "state": key.state.value,
+                "encrypt_count": key.encrypt_count,
+                "decrypt_count": key.decrypt_count,
+                "last_used_at": key.last_used_at,
+            }
 
     def get(self, version: int) -> KeyVersion:
         """按版本号取密钥，用于解密历史数据。"""

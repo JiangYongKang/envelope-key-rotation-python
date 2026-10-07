@@ -11,6 +11,7 @@ class KeyState(str, Enum):
     PENDING = "PENDING"      # 已登记，未启用
     ACTIVE = "ACTIVE"        # 当前生效，可用于加密
     DISABLED = "DISABLED"    # 已停用，仅可用于解密历史数据
+    RETIRED = "RETIRED"      # 已退役（终态），不可解密、不可再启用
 
 
 @dataclass
@@ -19,6 +20,10 @@ class KeyVersion:
     material: bytes          # 主密钥材料（本地内存保存）
     state: KeyState = KeyState.PENDING
     created_at: float = field(default_factory=time.time)
+    # 使用统计：用于判断版本是否还有流量、能否退役
+    encrypt_count: int = 0
+    decrypt_count: int = 0
+    last_used_at: float | None = None
 
 
 @dataclass
@@ -30,3 +35,4 @@ class Envelope:
     wrap_nonce: bytes        # 封装数据密钥时使用的随机数
     nonce: bytes             # 内容加密的随机数
     ciphertext: bytes        # 内容密文（AEAD，自带完整性校验）
+    record_id: int | None = None  # 服务端密文台账中的记录号（未登记时为 None）
