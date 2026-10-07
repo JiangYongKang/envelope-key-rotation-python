@@ -46,6 +46,10 @@ class KeyRing:
         """启用某个已登记版本为当前主密钥版本。"""
         with self._lock:
             key = self._require(version)
+            if key.state is KeyState.RETIRED:
+                raise KeyManagementError(
+                    ErrorCode.VERSION_RETIRED, f"版本 {version} 已退役（终态），不能重新启用"
+                )
             if key.state is KeyState.DISABLED:
                 raise KeyManagementError(
                     ErrorCode.VERSION_NOT_ACTIVE, f"版本 {version} 已停用，不能重新启用"
@@ -70,6 +74,10 @@ class KeyRing:
         """停用版本；停用后不可再用于加密，也不可重复停用。"""
         with self._lock:
             key = self._require(version)
+            if key.state is KeyState.RETIRED:
+                raise KeyManagementError(
+                    ErrorCode.VERSION_RETIRED, f"版本 {version} 已退役（终态），不能停用"
+                )
             if key.state is KeyState.DISABLED:
                 raise KeyManagementError(
                     ErrorCode.VERSION_NOT_ACTIVE, f"版本 {version} 已停用，不能重复停用"
@@ -78,6 +86,35 @@ class KeyRing:
             if self._active == version:
                 self._active = None
             return key
+
+    def retire(self, version: int, in_use: bool) -> KeyVersion:
+        """退役版本（终态）。仅允许已停用且无历史密文引用的版本。
+
+        in_use 由调用方（服务层）在同一锁内判定后传入。
+        """
+        with self._lock:
+            key = self._require(version)
+            if key.state is KeyState.RETIRED:
+                raise KeyManagementError(
+                    ErrorCode.VERSION_RETIRED, f"版本 {version} 已退役，不能重复退役"
+                )
+            if key.state is not KeyState.DISABLED:
+                raise KeyManagementError(
+                    ErrorCode.VERSION_NOT_ACTIVE,
+                    f"版本 {version} 状态为 {key.state.value}，只有已停用版本才能退役",
+                )
+            if in_use:
+                raise KeyManagementError(
+                    ErrorCode.VERSION_IN_USE,
+                    f"版本 {version} 仍在使用中：仍有历史密文引用，拒绝退役",
+                )
+            key.state = KeyState.RETIRED
+            return key
+
+    def usage(self, version: int) -> KeyVersion:
+        """按版本查询使用统计所在的密钥条目。"""
+        with self._lock:
+            return self._require(version)
 
     def get(self, version: int) -> KeyVersion:
         """按版本号取密钥，用于解密历史数据。"""

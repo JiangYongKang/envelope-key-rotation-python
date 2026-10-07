@@ -11,6 +11,16 @@ class KeyState(str, Enum):
     PENDING = "PENDING"      # 已登记，未启用
     ACTIVE = "ACTIVE"        # 当前生效，可用于加密
     DISABLED = "DISABLED"    # 已停用，仅可用于解密历史数据
+    RETIRED = "RETIRED"      # 已退役，终态：不可启用、不可解密
+
+
+@dataclass
+class KeyStats:
+    """按版本统计的使用情况，用于判断是否可安全退役。"""
+
+    encrypt_count: int = 0
+    decrypt_count: int = 0
+    last_used_at: float | None = None
 
 
 @dataclass
@@ -19,6 +29,7 @@ class KeyVersion:
     material: bytes          # 主密钥材料（本地内存保存）
     state: KeyState = KeyState.PENDING
     created_at: float = field(default_factory=time.time)
+    stats: KeyStats = field(default_factory=KeyStats)
 
 
 @dataclass
